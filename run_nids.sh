@@ -33,6 +33,12 @@ elif [ "${SECTOR}" == "PR" ];
 	STNFIL="PR.tbl"
 fi
 
+LUTFIL="iem_lut256.tbl"
+if [ "$PROD" == "EET" ];
+	then
+	LUTFIL="iem_eet.tbl"
+fi
+
 #source /usr/local/nawips/Gemenviron.profile
 export NA_OS=linux64
 export GEMTBL=gempak/tables
@@ -40,10 +46,10 @@ export GEMPARM=gempak/param
 export GEMPAKHOME=gempak
 export CONFIGDIR=gempak/config
 export GEMERR=gempak/error
-export RAD=/home/ldm/data/nexrad/
+export RAD=/mnt/nexrad3/nexrad/
 export GEMPDF=gempak/pdf
 
-./bin/nex2img << EOF > logs/nex2img_${SECTOR}_${PROD}.log
+./bin/nex2img << EOF > logs/nex2img_${SECTOR}_${PROD}_${JOB}.log
  GRDAREA  = ${GRDAREA}
  PROJ     = CED
  KXKY     = ${KXKY}
@@ -55,7 +61,7 @@ RADDUR   = 25
  STNFIL   = ${STNFIL}
  RADMODE  = PC
  RADFIL   = ${SECTOR}_${PROD}_${JOB}.gif
- LUTFIL   = iem_lut256.tbl
+LUTFIL   = ${LUTFIL}
  list
  run
 
