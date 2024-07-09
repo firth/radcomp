@@ -1,95 +1,111 @@
 """
- Use the RAP model to provide a mask for use in clutter suppression by
- the NEXRAD compositer
+Use the RAP model to provide a mask for use in clutter suppression by
+the NEXRAD compositer
 """
-from __future__ import print_function
-import os
-import sys
+
 import datetime
-import warnings
+import os
+import tempfile
 
 import numpy as np
-import pytz
-from osgeo import gdal, gdalconst
-from scipy import interpolate
 import pygrib
+import pyproj
+import requests
+from affine import Affine
+from osgeo import gdal, gdalconst
+from pyiem.util import logger, utc
+from rasterio.warp import Resampling, reproject
 
-# n0r_ructemps.py:55: RuntimeWarning: invalid value encountered in less
-#  ifreezing = np.where( T < 279.0, 1., 0.)
-warnings.simplefilter("ignore", RuntimeWarning)
+LOG = logger()
+gdal.UseExceptions()
 
 
-def run(utc):
+def get_grid(grb):
+    """Figure out the x-y coordinates."""
+    pj = pyproj.Proj(grb.projparams)
+    # ll
+    lat1 = grb["latitudeOfFirstGridPointInDegrees"]
+    lon1 = grb["longitudeOfFirstGridPointInDegrees"]
+    llx, lly = pj(lon1, lat1)
+    xaxis = llx + grb["DxInMetres"] * np.arange(grb["Nx"])
+    yaxis = lly + grb["DyInMetres"] * np.arange(grb["Ny"])
+    return xaxis, yaxis
+
+
+def main():
     """Run for a valid timestamp"""
-    grbs = None
+    utcnow = utc()
+    utcnow += datetime.timedelta(hours=1)
+
     # Search for valid file
-    for fhour in range(10):
-        ts = utc - datetime.timedelta(hours=fhour)
-        fstr = "%03i" % (fhour,)
-        fn = ts.strftime(
-            "/mesonet/ARCHIVE/data/%Y/%m/%d/model/rap/"
-            "%H/rap.t%Hz.awp130f" + fstr + ".grib2"
-        )
-        # print fn
-        if not os.path.isfile(fn):
-            continue
-        try:
-            grib = pygrib.open(fn)
-            grbs = grib.select(name="2 metre temperature")
-        except Exception as _exp:
-            continue
-        if grbs is not None:
-            break
-    if grbs is None:
-        print("n0r_ructemps major failure! No data found for %s" % (utc,))
+    grbs = None
+    tmpk_2m = None
+    with tempfile.NamedTemporaryFile(delete=False) as tmpfd:
+        for fhour in range(10):
+            ts = utcnow - datetime.timedelta(hours=fhour)
+            uri = ts.strftime(
+                "http://mesonet.agron.iastate.edu/archive/data/%Y/%m/%d/"
+                f"model/rap/%H/rap.t%Hz.awp130f{fhour:03d}.grib2"
+            )
+            LOG.info("requesting %s", uri)
+            try:
+                req = requests.get(uri, timeout=10)
+                if req.status_code != 200:
+                    LOG.info("got status_code %s", req.status_code)
+                    continue
+                with open(tmpfd.name, "wb") as fh:
+                    fh.write(req.content)
+                grib = pygrib.open(tmpfd.name)
+                grbs = grib.select(name="2 metre temperature")
+                src_crs = grbs[0].projparams
+                xaxis, yaxis = get_grid(grbs[0])
+                src_aff = Affine(
+                    grbs[0]["DxInMetres"],
+                    0.0,
+                    xaxis[0],
+                    0.0,
+                    -grbs[0]["DyInMetres"],
+                    yaxis[-1],
+                )
+                tmpk_2m = grbs[0].values
+            except Exception as exp:
+                os.unlink(tmpfd.name)
+                LOG.info(exp)
+                continue
+            if grbs:
+                break
+    os.unlink(tmpfd.name)
+
+    if tmpk_2m is None:
+        LOG.info("No data found for %s", utcnow)
         return
-    tmpk_2m = grbs[0].values
-    lat, lon = grbs[0].latlons()
 
-    x = np.arange(-126.0, -66.0, 0.01)
-    y = np.arange(24.0, 50.0, 0.01)
-    xx, yy = np.meshgrid(x, y)
-
-    T = interpolate.griddata(
-        (lon.ravel(), lat.ravel()), tmpk_2m.ravel(), (xx, yy), method="cubic"
+    tmpk = np.zeros((2600, 6000), "f")
+    dest_aff = Affine(0.01, 0.0, -126.0, 0.0, -0.01, 50.0)
+    reproject(
+        np.flipud(tmpk_2m),
+        tmpk,
+        src_transform=src_aff,
+        src_crs=src_crs,
+        dst_transform=dest_aff,
+        dst_crs={"init": "EPSG:4326"},
+        dst_nodata=np.nan,
+        resampling=Resampling.nearest,
     )
-    T = np.flipud(T)
-
-    """
-    import matplotlib.pyplot as plt
-    plt.subplot(111)
-    im = plt.imshow(T, extent=(0,1,1,0))
-    plt.colorbar(im)
-    plt.savefig('test.png')
-    """
 
     # Anything less than 6 C we will not consider for masking
-    ifreezing = np.where(T < 279.0, 1.0, 0.0)
-
+    ifreezing = np.ma.where(tmpk < 279.0, 1.0, 0.0)
     n0rct = gdal.ColorTable()
     n0rct.SetColorEntry(0, (0, 0, 0))
     n0rct.SetColorEntry(1, (255, 0, 0))
 
     out_driver = gdal.GetDriverByName("GTiff")
-    outfn = "data/ifreeze-%s.tif" % (utc.strftime("%Y%m%d%H"),)
+    outfn = f"data/ifreeze-{utcnow:%Y%m%d%H}.tif"
     outdataset = out_driver.Create(outfn, 6000, 2600, 1, gdalconst.GDT_Byte)
     # Set output color table to match input
     outdataset.GetRasterBand(1).SetRasterColorTable(n0rct)
     outdataset.GetRasterBand(1).WriteArray(ifreezing)
 
 
-def main(argv):
-    """Go Main Go"""
-    # Script runs at :58 after and we generate a file valid for the next hour
-    utc = datetime.datetime.utcnow()
-    utc = utc + datetime.timedelta(hours=1)
-    utc = utc.replace(tzinfo=pytz.utc)
-    if len(argv) == 5:
-        utc = utc.replace(
-            year=int(argv[1]), month=int(argv[2]), day=int(argv[3]), hour=int(argv[4])
-        )
-    run(utc)
-
-
 if __name__ == "__main__":
-    main(sys.argv)
+    main()

@@ -1,20 +1,19 @@
 """
- Proctor the reprocessing of NEXRAD data provide to me by NCDC
+Proctor the reprocessing of NEXRAD data provide to me by NCDC
 """
 
 import datetime
 import subprocess
-import pytz
 
-sts = datetime.datetime(2003, 1, 1, 0, 0)
-sts = sts.replace(tzinfo=pytz.timezone("UTC"))
-ets = datetime.datetime(2003, 2, 1, 0, 0)
-ets = ets.replace(tzinfo=pytz.timezone("UTC"))
+from pyiem.util import utc
+
+sts = utc(2003, 1, 1)
+ets = utc(2003, 2, 1)
 interval = datetime.timedelta(minutes=5)
 
 now = sts
 while now < ets:
-    print now
+    print(now)
     if now.hour == 0 and now.minute == 0:
         # Extract tomorrow
         cmd = "python extract.py %s" % (now.strftime("%Y %m %d"),)

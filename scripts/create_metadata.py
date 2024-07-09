@@ -1,4 +1,4 @@
-""" Create the auxillary JSON metadata that goes with this production
+"""Create the auxillary JSON metadata that goes with this production
 
 {"meta": {"vcp": 212, "product": "N0Q", "valid": "2014-06-25T20:43:55Z",
 "site": "DMX"}}
@@ -28,12 +28,13 @@ information included in the GEMPAK log file
 
 
 """
-import json
-import sys
-import os
+
 import datetime
-import tempfile
+import json
+import os
 import subprocess
+import sys
+import tempfile
 
 
 def main():
@@ -58,15 +59,17 @@ def main():
 
     radars = 0
     used = 0
-    logfn = "logs/nex2img_%s_%s_%s.log" % (sector, prod, job)
+    logfn = f"logs/nex2img_{sector}_{prod}_{job}.log"
     if os.path.isfile(logfn):
-        for line in open(logfn):
-            if line.find("Searching radar:") > 0:
-                radars += 1
-            elif line.find("Using image:") > 0:
-                used += 1
+        with open(logfn, encoding="utf-8") as fh:
+            for line in fh:
+                if line.find("Searching radar:") > 0:
+                    radars += 1
+                elif line.find("Using image:") > 0:
+                    used += 1
     else:
-        print(f"create_metadata log file {logfn} missing")
+        if prod != "N0R":
+            print(f"create_metadata log file {logfn} missing")
 
     res = {
         "meta": {

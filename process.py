@@ -1,13 +1,13 @@
 """
-  tmpc in the netcdf file is stored with 0,0 in lower left
-  PIL will have imagery with 0,0 in upper left
+tmpc in the netcdf file is stored with 0,0 in lower left
+PIL will have imagery with 0,0 in upper left
 """
-import sys
-import datetime
 
-from PIL import Image
-from PIL import PngImagePlugin
+import datetime
+import sys
+
 import numpy as np
+from PIL import Image, PngImagePlugin
 from pyiem.util import ncopen
 
 
@@ -19,7 +19,7 @@ def main(argv):
     netprod = argv[4]
 
     # Load EET
-    netpng = Image.open("%s_%s_%s.gif" % (sector, netprod, job))
+    netpng = Image.open(f"{sector}_{netprod}_{job}.gif")
     sz = (netpng.size[1], netpng.size[0])
     net = np.array(np.frombuffer(netpng.tobytes(), dtype=np.uint8).reshape(sz))
 
@@ -36,12 +36,13 @@ def main(argv):
         net[:, :] = 15.0
 
     # Load N0Q
-    n0qpng = Image.open("%s_N0Q_%s.gif" % (sector, job))
+    n0qpng = Image.open(f"{sector}_N0Q_{job}.gif")
     n0q = (np.frombuffer(n0qpng.tobytes(), dtype=np.uint8)).reshape(sz)
 
     # Clean n0q
     if netprod == "EET":
-        n0q = np.where(net < 10, 0, n0q)
+        # EET idx 2 is 1 kft, so 6 is 5kft
+        n0q = np.where(net < 6, 0, n0q)
     else:
         n0q = np.where(net < 2, 0, n0q)
 
@@ -50,8 +51,12 @@ def main(argv):
     # png.putpalette( make_colorramp() )
     png.putpalette(n0qpng.getpalette())
     meta = PngImagePlugin.PngInfo()
-    meta.add_text("gentime", datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"))
-    png.save("%s_N0Q_CLEAN_%s.png" % (sector, job), pnginfo=meta)
+    # This is racy if we have another processing at the same time and are
+    # in a sector, like GU, that often produces blank images.
+    meta.add_text(
+        "gentime", datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    )
+    png.save(f"{sector}_N0Q_CLEAN_{job}.png", pnginfo=meta)
 
 
 if __name__ == "__main__":

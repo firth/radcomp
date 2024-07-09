@@ -1,5 +1,7 @@
 from xml.etree import ElementTree
-import Image, ImageDraw
+
+import Image
+import ImageDraw
 import numpy
 
 gbase = -32.0
@@ -43,7 +45,6 @@ for elem in ar:
     if uv:
         levels[i] = float(uv)
     lv = elem.attrib.get("lowerValue", None)
-    print diff(lv, uv)
     oramp[i, 0] = int(elem.find("red").text)
     oramp[i, 1] = int(elem.find("green").text)
     oramp[i, 2] = int(elem.find("blue").text)
@@ -64,11 +65,12 @@ for i in range(1, 254):
     if j > 238:
         j = 238
     nramp[i, :] = oramp[j, :]
-    print dbz, levels[j], i, j, nramp[i, :]
 
 o = open("iem_lut256.tbl", "w")
 for i in range(254):
-    o.write("%20s%6.0f %6.0f %6.0f\n" % ("", nramp[i, 0], nramp[i, 1], nramp[i, 2]))
+    o.write(
+        "%20s%6.0f %6.0f %6.0f\n" % ("", nramp[i, 0], nramp[i, 1], nramp[i, 2])
+    )
 o.close()
 
 png.putpalette(tuple(oramp.ravel()))
